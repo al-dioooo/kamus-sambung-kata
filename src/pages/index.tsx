@@ -147,7 +147,7 @@ export default function Home() {
                 <div className="flex justify-between items-center text-sm font-mono font-bold text-[#dad4bb]/80">
                     <p className="tracking-widest">PRESS [ESC] TO CLEAR INPUT</p>
                     <button
-                        className="border font-mono border-[#dad4bb]/50 text-[#dad4bb] px-4 py-2 hover:bg-[#dad4bb] hover:text-[#11100f] transition uppercase tracking-widest text-xs"
+                        className="border cursor-pointer font-mono border-[#dad4bb]/50 text-[#dad4bb] px-4 py-2 hover:bg-[#dad4bb] hover:text-[#11100f] transition uppercase tracking-widest text-xs"
                         onClick={() => {/* Logika reset kata terpakai */ }}
                     >
                         [ Reset Kata Terpakai ]
@@ -173,7 +173,7 @@ export default function Home() {
                                 {suffixTags.map(tag => (
                                     <span key={tag} className="flex items-center bg-[#1a1917] text-[#dad4bb] px-2 py-1 text-sm border border-[#dad4bb]/40">
                                         {tag}
-                                        <button onClick={() => removeSuffixTag(tag)} className="ml-2 text-[#dad4bb]/50 hover:text-[#dad4bb]">✕</button>
+                                        <button onClick={() => removeSuffixTag(tag)} className="cursor-pointer ml-2 text-[#dad4bb]/50 hover:text-[#dad4bb]">✕</button>
                                     </span>
                                 ))}
                                 <form onSubmit={addSuffixTag} className="flex-1 min-w-30 flex">
@@ -184,7 +184,7 @@ export default function Home() {
                                         placeholder={suffixTags.length === 0 ? "[ contoh: if ]" : ""}
                                         className="bg-transparent text-[#dad4bb] w-full outline-none p-1 placeholder:text-[#dad4bb]/30"
                                     />
-                                    <button type="submit" className="bg-[#dad4bb] text-[#11100f] font-bold text-xs px-3 py-1 hover:bg-[#dad4bb]/80 transition hidden md:block uppercase tracking-widest">
+                                    <button type="submit" className="cursor-pointer bg-[#dad4bb] text-[#11100f] font-bold text-xs px-3 py-1 hover:bg-[#dad4bb]/80 transition hidden md:block uppercase tracking-widest">
                                         <Plus className="w-4 h-4" />
                                     </button>
                                 </form>
@@ -211,7 +211,7 @@ export default function Home() {
                                     type="number"
                                     value={minLen}
                                     onChange={(e) => setMinLen(e.target.value)}
-                                    placeholder="min"
+                                    placeholder="[ min ]"
                                     className="w-full bg-[#11100f] border border-[#dad4bb]/30 text-[#dad4bb] p-3 focus:outline-none focus:border-[#dad4bb] transition placeholder:text-[#dad4bb]/30"
                                 />
                             </div>
@@ -221,7 +221,7 @@ export default function Home() {
                                     type="number"
                                     value={maxLen}
                                     onChange={(e) => setMaxLen(e.target.value)}
-                                    placeholder="max"
+                                    placeholder="[ max ]"
                                     className="w-full bg-[#11100f] border border-[#dad4bb]/30 text-[#dad4bb] p-3 focus:outline-none focus:border-[#dad4bb] transition placeholder:text-[#dad4bb]/30"
                                 />
                             </div>
@@ -242,9 +242,9 @@ export default function Home() {
 
                 {isSearching && (
                     <div className="space-y-6">
-                        <div className="border border-[#dad4bb]/40 p-6 bg-[#1a1917]">
+                        <div className="border-y-2 border-[#dad4bb]/40 p-6 bg-[#1a1917]">
                             <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-xl md:text-2xl font-bold text-[#dad4bb] tracking-widest flex items-center gap-4 uppercase">
+                                <h2 className="text-xl md:text-2xl font-bold font-mono text-[#dad4bb] tracking-widest flex items-center gap-4 uppercase">
                                     <span className="text-[#dad4bb]/50"><Grid className="w-6 h-6" /></span> HASIL UTAMA
                                 </h2>
                                 <div className="bg-[#dad4bb] text-[#11100f] font-semibold font-mono px-4 py-2">
@@ -267,12 +267,12 @@ export default function Home() {
 
                         {/* Box Data Cadangan HANYA muncul jika Awalan diisi DAN ada syarat lain yang membuat kata terlempar dari Utama */}
                         {prefix && (middle || suffixTags.length > 0) && (
-                            <div className="border border-[#dad4bb]/20 p-6 bg-[#1a1917] opacity-90">
+                            <div className="border-y-2 border-[#dad4bb]/20 p-6 bg-[#1a1917] opacity-90">
                                 <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-lg md:text-xl font-bold text-[#dad4bb]/70 tracking-widest flex items-center gap-4 uppercase">
-                                        <span className="text-[#dad4bb]/30"><Reload className="w-6 h-6" /></span> DATA CADANGAN <span className="text-xs font-normal normal-case tracking-widest">(Sesuai awalan, namun gagal di huruf tengah/akhiran)</span>
+                                    <h2 className="text-lg md:text-xl font-bold font-mono text-[#dad4bb]/70 tracking-widest flex items-center gap-4 uppercase">
+                                        <span className="text-[#dad4bb]/30"><Reload className="w-6 h-6" /></span> DATA CADANGAN <span className="text-xs font-normal tracking-widest">[ Sesuai awalan, namun gagal di huruf tengah/akhiran ]</span>
                                     </h2>
-                                    <div className="bg-[#1a1917] border border-[#dad4bb]/40 text-[#dad4bb] font-bold px-4 py-2">
+                                    <div className="bg-[#1a1917] border border-[#dad4bb]/40 text-[#dad4bb] font-semibold font-mono px-4 py-2">
                                         {searchResult.cadangan.length}
                                     </div>
                                 </div>
@@ -286,13 +286,22 @@ export default function Home() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <p className="text-[#dad4bb]/40 italic text-sm tracking-widest">[ EMPTY ]</p>
+                                    <p className="text-[#dad4bb]/40 text-xs font-mono tracking-widest">[ EMPTY ]</p>
                                 )}
                             </div>
                         )}
                     </div>
                 )}
 
+                <div className="flex justify-between items-center">
+                    <p className="font-mono text-[#dad4bb]/60 text-xs uppercase tracking-widest">
+                        Created by AL
+                    </p>
+
+                    <a href="https://al.is-a.dev" target="_blank" className="font-mono underline underline-offset-8 font-semibold tracking-widest">
+                        https://al.is-a.dev
+                    </a>
+                </div>
             </main>
         </div>
     )
