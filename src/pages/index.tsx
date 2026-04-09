@@ -14,7 +14,10 @@ export default function Home() {
     const [minLen, setMinLen] = useState('')
     const [maxLen, setMaxLen] = useState('')
 
-    // Fetch data HANYA SEKALI
+    // State untuk Kata Terpakai (Local Storage)
+    const [usedWords, setUsedWords] = useState<string[]>([])
+
+    // Fetch data kata & Sinkronisasi Local Storage HANYA SEKALI saat mount
     useEffect(() => {
         fetch('/api/words')
             .then((res) => res.json())
@@ -23,6 +26,16 @@ export default function Home() {
                 setIsLoading(false)
             })
             .catch(() => setIsLoading(false))
+
+        // Load data kata terpakai dari memori browser
+        const storedUsedWords = localStorage.getItem('kata_terpakai')
+        if (storedUsedWords) {
+            try {
+                setUsedWords(JSON.parse(storedUsedWords))
+            } catch (error) {
+                console.error("Gagal membaca memori kata terpakai")
+            }
+        }
     }, [])
 
     // Handle ESC untuk clear input
@@ -41,6 +54,7 @@ export default function Home() {
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [])
 
+    // Logika Tagging
     const addSuffixTag = (e: React.FormEvent) => {
         e.preventDefault()
         const tag = suffixInput.trim().toLowerCase()
@@ -54,17 +68,33 @@ export default function Home() {
         setSuffixTags(suffixTags.filter((tag) => tag !== tagToRemove))
     }
 
-    // Logika Pencarian Client-Side (Disempurnakan)
+    // Logika Klik Kata Terpakai (Toggle & Save ke LocalStorage)
+    const toggleWordUsage = (word: string) => {
+        setUsedWords(prev => {
+            const isUsed = prev.includes(word)
+            const newUsedWords = isUsed ? prev.filter(w => w !== word) : [...prev, word]
+            localStorage.setItem('kata_terpakai', JSON.stringify(newUsedWords))
+            return newUsedWords
+        })
+    }
+
+    // Logika Reset Total Kata Terpakai
+    const handleResetUsedWords = () => {
+        if (confirm("[WARNING] Eksekusi protokol pembersihan? Ini akan menghapus semua riwayat kata terpakai.")) {
+            setUsedWords([])
+            localStorage.removeItem('kata_terpakai')
+        }
+    }
+
+    // Logika Pencarian Client-Side
     const searchResult = useMemo(() => {
         const cleanPrefix = prefix.trim().toLowerCase()
         const cleanMiddle = middle.trim().toLowerCase()
 
-        // Jika semua parameter kosong, jangan render apa-apa
         if (!cleanPrefix && !cleanMiddle && suffixTags.length === 0) {
             return { utama: [], cadangan: [] }
         }
 
-        // Terapkan filter dasar (panjang kata)
         let baseWords = words
         if (minLen) baseWords = baseWords.filter(w => w.length >= parseInt(minLen))
         if (maxLen) baseWords = baseWords.filter(w => w.length <= parseInt(maxLen))
@@ -72,14 +102,12 @@ export default function Home() {
         const utama: string[] = []
         const cadangan: string[] = []
 
-        // Jika Awalan diisi, ini menjadi patokan utama untuk membagi Utama dan Cadangan
         if (cleanPrefix) {
             const prefixMatched = baseWords.filter(w => w.startsWith(cleanPrefix))
 
             prefixMatched.forEach(w => {
                 let isUtama = true
 
-                // Cek syarat Huruf Tengah
                 if (cleanMiddle) {
                     const innerPart = w.substring(1, w.length - 1)
                     if (!innerPart.includes(cleanMiddle)) {
@@ -87,7 +115,6 @@ export default function Home() {
                     }
                 }
 
-                // Cek syarat Akhiran Tag
                 if (suffixTags.length > 0) {
                     const matchSuffix = suffixTags.some(tag => w.endsWith(tag))
                     if (!matchSuffix) {
@@ -95,17 +122,13 @@ export default function Home() {
                     }
                 }
 
-                // Distribusi hasil
                 if (isUtama) {
                     utama.push(w)
                 } else {
-                    // Hanya masuk cadangan jika gagal memenuhi syarat tengah atau akhiran
                     cadangan.push(w)
                 }
             })
         } else {
-            // Jika TIDAK ADA Awalan, kita tidak menampilkan Data Cadangan
-            // (Mencegah seluruh sisa isi kamus tumpah ke layar)
             baseWords.forEach(w => {
                 let isUtama = true
 
@@ -148,7 +171,7 @@ export default function Home() {
                     <p className="tracking-widest">PRESS [ESC] TO CLEAR INPUT</p>
                     <button
                         className="border cursor-pointer font-mono border-[#dad4bb]/50 text-[#dad4bb] px-4 py-2 hover:bg-[#dad4bb] hover:text-[#11100f] transition uppercase tracking-widest text-xs"
-                        onClick={() => {/* Logika reset kata terpakai */ }}
+                        onClick={handleResetUsedWords}
                     >
                         [ Reset Kata Terpakai ]
                     </button>
@@ -240,6 +263,32 @@ export default function Home() {
                     </div>
                 </div>
 
+                {/* ARCHIVE KATA TERPAKAI (Muncul jika ada riwayat kata terpakai) */}
+                {usedWords.length > 0 && (
+                    <div className="border-y-2 border-[#dad4bb]/20 p-4 bg-[#11100f] mt-6">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="text-xs font-bold font-mono text-[#dad4bb]/60 tracking-widest uppercase">
+                                [ ARCHIVE: KATA TERPAKAI ]
+                            </h2>
+                            <div className="text-[#dad4bb]/50 font-mono text-xs">
+                                {usedWords.length} ENTRIES
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                            {usedWords.map(word => (
+                                <span
+                                    key={`used-${word}`}
+                                    onClick={() => toggleWordUsage(word)}
+                                    className="text-xs font-mono tracking-widest text-[#dad4bb]/30 line-through cursor-pointer hover:text-[#dad4bb] transition"
+                                    title="Klik untuk membatalkan status terpakai"
+                                >
+                                    {word}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {isSearching && (
                     <div className="space-y-6">
                         <div className="border-y-2 border-[#dad4bb]/40 p-6 bg-[#1a1917]">
@@ -254,18 +303,27 @@ export default function Home() {
 
                             {searchResult.utama.length > 0 ? (
                                 <div className="flex flex-wrap gap-3">
-                                    {searchResult.utama.map(word => (
-                                        <div key={word} className="border border-[#dad4bb]/40 text-[#dad4bb] px-4 py-2 text-sm hover:bg-[#dad4bb]/10 transition cursor-default">
-                                            {word}
-                                        </div>
-                                    ))}
+                                    {searchResult.utama.map(word => {
+                                        const isUsed = usedWords.includes(word)
+                                        return (
+                                            <div
+                                                key={word}
+                                                onClick={() => toggleWordUsage(word)}
+                                                className={`border px-4 py-2 text-sm transition cursor-pointer select-none
+                                                    ${isUsed ? 'border-dashed border-[#dad4bb]/20 text-[#dad4bb]/30 line-through bg-[#dad4bb]/5' : 'border-[#dad4bb]/40 text-[#dad4bb] hover:bg-[#dad4bb]/10'}
+                                                `}
+                                                title={isUsed ? "Batalkan pemakaian" : "Klik untuk menandai terpakai"}
+                                            >
+                                                {word}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             ) : (
                                 <p className="text-[#dad4bb]/50 text-xs font-mono tracking-widest">[ ERROR: NO MATCHING DATA ]</p>
                             )}
                         </div>
 
-                        {/* Box Data Cadangan HANYA muncul jika Awalan diisi DAN ada syarat lain yang membuat kata terlempar dari Utama */}
                         {prefix && (middle || suffixTags.length > 0) && (
                             <div className="border-y-2 border-[#dad4bb]/20 p-6 bg-[#1a1917] opacity-90">
                                 <div className="flex justify-between items-center mb-6">
@@ -279,11 +337,21 @@ export default function Home() {
 
                                 {searchResult.cadangan.length > 0 ? (
                                     <div className="flex flex-wrap gap-2">
-                                        {searchResult.cadangan.map(word => (
-                                            <div key={word} className="border border-[#dad4bb]/30 text-[#dad4bb]/70 px-3 py-1 text-md bg-[#11100f]">
-                                                {word}
-                                            </div>
-                                        ))}
+                                        {searchResult.cadangan.map(word => {
+                                            const isUsed = usedWords.includes(word)
+                                            return (
+                                                <div
+                                                    key={word}
+                                                    onClick={() => toggleWordUsage(word)}
+                                                    className={`border px-3 py-1 text-md transition cursor-pointer select-none
+                                                        ${isUsed ? 'border-dashed border-[#dad4bb]/20 text-[#dad4bb]/30 line-through bg-[#dad4bb]/5' : 'border-[#dad4bb]/30 text-[#dad4bb]/70 bg-[#11100f] hover:bg-[#dad4bb]/10'}
+                                                    `}
+                                                    title={isUsed ? "Batalkan pemakaian" : "Klik untuk menandai terpakai"}
+                                                >
+                                                    {word}
+                                                </div>
+                                            )
+                                        })}
                                     </div>
                                 ) : (
                                     <p className="text-[#dad4bb]/40 text-xs font-mono tracking-widest">[ EMPTY ]</p>
