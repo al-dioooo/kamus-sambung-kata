@@ -1,14 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Head from 'next/head'
 import { motion, AnimatePresence } from 'motion/react'
-import { Grid, Plus, Reload } from '@/components/icons/pixel'
+import { Grid, MoreVertical, Plus, Reload, WarningBox } from '@/components/icons/pixel'
 
 // Interface untuk Settings
 interface KamusSettings {
     hideMinLen: boolean
     hideMaxLen: boolean
     hideArchive: boolean
-    autoFocusPrefix: boolean
+    resetPrefixOnFocus: boolean
+    autoFocusOnFocus: boolean
     groupMainResult: boolean
 }
 
@@ -16,7 +17,8 @@ const DEFAULT_SETTINGS: KamusSettings = {
     hideMinLen: false,
     hideMaxLen: false,
     hideArchive: false,
-    autoFocusPrefix: false,
+    resetPrefixOnFocus: false,
+    autoFocusOnFocus: false,
     groupMainResult: false
 }
 
@@ -35,10 +37,11 @@ export default function Home() {
     // Referensi untuk input Awalan agar bisa di-focus
     const prefixInputRef = useRef<HTMLInputElement>(null)
 
-    // State untuk Kata Terpakai & Settings
+    // State untuk Kata Terpakai, Settings, dan Modals
     const [usedWords, setUsedWords] = useState<string[]>([])
     const [settings, setSettings] = useState<KamusSettings>(DEFAULT_SETTINGS)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+    const [isResetModalOpen, setIsResetModalOpen] = useState(false)
 
     // Fetch data kata & Load Settings/Memori
     useEffect(() => {
@@ -78,8 +81,9 @@ export default function Home() {
             if (e.key === 'Escape') {
                 if (isSettingsOpen) {
                     setIsSettingsOpen(false)
-                }
-                else {
+                } else if (isResetModalOpen) {
+                    setIsResetModalOpen(false)
+                } else {
                     setPrefix('')
                     setMiddle('')
                     setSuffixTags([])
@@ -91,21 +95,25 @@ export default function Home() {
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isSettingsOpen])
+    }, [isSettingsOpen, isResetModalOpen])
 
     // Handle Window Focus (Auto-focus & Reset Awalan)
     useEffect(() => {
         const handleFocus = () => {
-            if (settings.autoFocusPrefix && !isSettingsOpen) {
-                setPrefix('')
-                setTimeout(() => {
-                    prefixInputRef.current?.focus()
-                }, 50)
+            if (!isSettingsOpen && !isResetModalOpen) {
+                if (settings.resetPrefixOnFocus) {
+                    setPrefix('')
+                }
+                if (settings.autoFocusOnFocus) {
+                    setTimeout(() => {
+                        prefixInputRef.current?.focus()
+                    }, 50)
+                }
             }
         }
         window.addEventListener('focus', handleFocus)
         return () => window.removeEventListener('focus', handleFocus)
-    }, [settings.autoFocusPrefix, isSettingsOpen])
+    }, [settings.resetPrefixOnFocus, settings.autoFocusOnFocus, isSettingsOpen, isResetModalOpen])
 
     // Logika Tagging
     const addSuffixTag = (e: React.FormEvent) => {
@@ -130,11 +138,16 @@ export default function Home() {
         })
     }
 
+    // Trigger buka modal konfirmasi reset
     const handleResetUsedWords = () => {
-        if (confirm("[WARNING] Eksekusi protokol pembersihan? Ini akan menghapus semua riwayat kata terpakai.")) {
-            setUsedWords([])
-            localStorage.removeItem('kata_terpakai')
-        }
+        setIsResetModalOpen(true)
+    }
+
+    // Eksekusi reset kata terpakai
+    const confirmResetUsedWords = () => {
+        setUsedWords([])
+        localStorage.removeItem('kata_terpakai')
+        setIsResetModalOpen(false)
     }
 
     // Logika Pencarian
@@ -228,15 +241,13 @@ export default function Home() {
                     <div className="flex gap-4">
                         <button
                             className="border cursor-pointer font-mono border-[#dad4bb]/50 text-[#dad4bb] px-4 py-2 hover:bg-[#dad4bb] hover:text-[#11100f] transition uppercase tracking-widest text-xs"
-                            onClick={handleResetUsedWords}
-                        >
+                            onClick={handleResetUsedWords}>
                             [ Reset Kata Terpakai ]
                         </button>
                         <button
                             className="border cursor-pointer font-mono border-[#dad4bb]/50 text-[#dad4bb] px-4 py-2 hover:bg-[#dad4bb] hover:text-[#11100f] transition uppercase tracking-widest text-xs bg-[#1a1917]"
-                            onClick={() => setIsSettingsOpen(true)}
-                        >
-                            [ Settings ]
+                            onClick={() => setIsSettingsOpen(true)}>
+                            <MoreVertical className="w-4 h-4" />
                         </button>
                     </div>
                 </div>
@@ -467,7 +478,7 @@ export default function Home() {
 
                 <div className="flex justify-between items-center">
                     <p className="font-mono text-[#dad4bb]/60 text-xs uppercase tracking-widest">
-                        Created by AL
+                        Created with Love by Al
                     </p>
 
                     <a href="https://al.is-a.dev" target="_blank" className="font-mono underline underline-offset-8 font-semibold tracking-widest">
@@ -490,7 +501,6 @@ export default function Home() {
                         }}
                     >
                         <motion.div
-                            // Animasi Glitch Murni (Hanya Opacity & Filter Blur)
                             initial={{ opacity: 0 }}
                             animate={{
                                 opacity: [0, 0.8, 0.2, 1, 0.4, 1],
@@ -503,7 +513,7 @@ export default function Home() {
                             }}
                             transition={{
                                 duration: 0.35,
-                                ease: "linear", // Linear agar flicker terasa patah-patah seperti digital error
+                                ease: "linear",
                                 times: [0, 0.2, 0.4, 0.6, 0.8, 1]
                             }}
                             className="bg-[#1a1917] border-y-2 border-[#dad4bb] p-8 max-w-md w-full mx-4 relative shadow-[0_0_30px_rgba(218,212,187,0.15)]"
@@ -562,14 +572,27 @@ export default function Home() {
                                 <label className="flex items-start gap-4 cursor-pointer hover:text-[#dad4bb] transition leading-relaxed group">
                                     <input
                                         type="checkbox"
-                                        checked={settings.autoFocusPrefix}
-                                        onChange={() => updateSetting('autoFocusPrefix')}
+                                        checked={settings.resetPrefixOnFocus}
+                                        onChange={() => updateSetting('resetPrefixOnFocus')}
                                         className="hidden"
                                     />
-                                    <div className={`w-4 h-4 flex items-center justify-center shrink-0 mt-0.5 border transition-colors ${settings.autoFocusPrefix ? 'bg-[#dad4bb] border-[#dad4bb]' : 'border-[#dad4bb]/50 group-hover:border-[#dad4bb]'}`}>
-                                        {settings.autoFocusPrefix && <div className="w-2 h-2 bg-[#1a1917]" />}
+                                    <div className={`w-4 h-4 flex items-center justify-center shrink-0 mt-0.5 border transition-colors ${settings.resetPrefixOnFocus ? 'bg-[#dad4bb] border-[#dad4bb]' : 'border-[#dad4bb]/50 group-hover:border-[#dad4bb]'}`}>
+                                        {settings.resetPrefixOnFocus && <div className="w-2 h-2 bg-[#1a1917]" />}
                                     </div>
-                                    <span>Reset & Auto-Focus form Awalan jika pindah tab</span>
+                                    <span>Reset form Awalan saat tab aktif</span>
+                                </label>
+
+                                <label className="flex items-start gap-4 cursor-pointer hover:text-[#dad4bb] transition leading-relaxed group">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.autoFocusOnFocus}
+                                        onChange={() => updateSetting('autoFocusOnFocus')}
+                                        className="hidden"
+                                    />
+                                    <div className={`w-4 h-4 flex items-center justify-center shrink-0 mt-0.5 border transition-colors ${settings.autoFocusOnFocus ? 'bg-[#dad4bb] border-[#dad4bb]' : 'border-[#dad4bb]/50 group-hover:border-[#dad4bb]'}`}>
+                                        {settings.autoFocusOnFocus && <div className="w-2 h-2 bg-[#1a1917]" />}
+                                    </div>
+                                    <span>Auto-Focus ke form Awalan saat tab aktif</span>
                                 </label>
 
                                 <label className="flex items-start gap-4 cursor-pointer hover:text-[#dad4bb] transition leading-relaxed group">
@@ -592,6 +615,71 @@ export default function Home() {
                                     className="px-6 py-2 bg-[#dad4bb] text-[#11100f] border border-[#dad4bb] hover:bg-[#dad4bb]/80 transition uppercase text-xs font-bold tracking-widest font-mono cursor-pointer"
                                 >
                                     [ SAVE & CLOSE ]
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* MODAL RESET KATA TERPAKAI */}
+            <AnimatePresence>
+                {isResetModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-[#11100f]/90 backdrop-blur-sm"
+                        onClick={(e) => {
+                            if (e.target === e.currentTarget) setIsResetModalOpen(false)
+                        }}
+                    >
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{
+                                opacity: [0, 0.8, 0.2, 1, 0.4, 1],
+                                filter: ["blur(4px)", "blur(0px)", "blur(2px)", "blur(0px)", "blur(1px)", "blur(0px)"]
+                            }}
+                            exit={{
+                                opacity: 0,
+                                filter: "blur(5px)",
+                                transition: { duration: 0.2 }
+                            }}
+                            transition={{
+                                duration: 0.35,
+                                ease: "linear",
+                                times: [0, 0.2, 0.4, 0.6, 0.8, 1]
+                            }}
+                            className="bg-[#1a1917] border-y-2 border-[#dad4bb] p-8 max-w-md w-full mx-4 relative shadow-[0_0_30px_rgba(218,212,187,0.15)]"
+                        >
+                            <div>
+                                <div className="absolute -top-3 -left-3 w-2 h-2 bg-[#dad4bb]"></div>
+                                <div className="absolute -bottom-3 -left-3 w-2 h-2 bg-[#dad4bb]"></div>
+                                <div className="absolute -bottom-3 -right-3 w-2 h-2 bg-[#dad4bb]"></div>
+                                <div className="absolute -top-3 -right-3 w-2 h-2 bg-[#dad4bb]"></div>
+                            </div>
+
+                            <h3 className="text-xl font-bold text-[#dad4bb] mb-4 flex items-center gap-2 uppercase tracking-widest font-mono">
+                                <span className="animate-pulse text-[#dad4bb]"><WarningBox /></span> [ WARNING ]
+                            </h3>
+
+                            <p className="text-[#dad4bb]/80 mb-8 tracking-widest text-sm leading-relaxed font-mono">
+                                Eksekusi protokol pembersihan? Ini akan menghapus permanen semua riwayat "Kata Terpakai" dari memori lokal.
+                            </p>
+
+                            <div className="flex justify-end gap-4 border-t border-[#dad4bb]/20 pt-6">
+                                <button
+                                    onClick={() => setIsResetModalOpen(false)}
+                                    className="px-4 py-2 border border-[#dad4bb]/50 text-[#dad4bb] hover:bg-[#dad4bb]/10 transition uppercase text-xs font-bold tracking-widest font-mono cursor-pointer"
+                                >
+                                    [ ABORT ]
+                                </button>
+                                <button
+                                    onClick={confirmResetUsedWords}
+                                    className="px-4 py-2 bg-[#dad4bb] text-[#11100f] border border-[#dad4bb] hover:bg-[#dad4bb]/80 transition uppercase text-xs font-bold tracking-widest font-mono cursor-pointer"
+                                >
+                                    [ EXECUTE ]
                                 </button>
                             </div>
                         </motion.div>
