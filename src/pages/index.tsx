@@ -43,6 +43,9 @@ export default function Home() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isResetModalOpen, setIsResetModalOpen] = useState(false)
 
+    // State untuk Custom Context Menu
+    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, targetWord: '' })
+
     // Fetch data kata & Load Settings/Memori
     useEffect(() => {
         fetch('/api/words')
@@ -66,6 +69,52 @@ export default function Home() {
         }
     }, [])
 
+    // Logika Custom Context Menu: Mencegah default klik kanan di SELURUH window & Handle Blur
+    useEffect(() => {
+        const handleGlobalContextMenu = (e: MouseEvent) => {
+            e.preventDefault()
+
+            // Jika tidak ada kata yang ditargetkan (klik kanan di area kosong),
+            // buka menu context default (tanpa opsi KBBI)
+            const menuWidth = 220
+            const menuHeight = 160
+            const x = e.clientX + menuWidth > window.innerWidth ? window.innerWidth - menuWidth - 10 : e.clientX
+            const y = e.clientY + menuHeight > window.innerHeight ? window.innerHeight - menuHeight - 10 : e.clientY
+
+            // Hanya timpa contextMenu jika tidak ada elemen kata yang menangani event ini
+            setContextMenu(prev => {
+                if (!prev.visible) {
+                    return { visible: true, x, y, targetWord: '' }
+                }
+                return prev
+            })
+        }
+
+        const handleClick = () => {
+            // Menutup context menu jika user klik kiri di manapun
+            if (contextMenu.visible) {
+                setContextMenu(prev => ({ ...prev, visible: false, targetWord: '' }))
+            }
+        }
+
+        const handleBlur = () => {
+            // Menutup context menu secara otomatis jika tab/window kehilangan fokus
+            if (contextMenu.visible) {
+                setContextMenu(prev => ({ ...prev, visible: false, targetWord: '' }))
+            }
+        }
+
+        window.addEventListener('contextmenu', handleGlobalContextMenu)
+        window.addEventListener('click', handleClick)
+        window.addEventListener('blur', handleBlur)
+
+        return () => {
+            window.removeEventListener('contextmenu', handleGlobalContextMenu)
+            window.removeEventListener('click', handleClick)
+            window.removeEventListener('blur', handleBlur)
+        }
+    }, [contextMenu.visible])
+
     // Update & Save Setting ke LocalStorage
     const updateSetting = (key: keyof KamusSettings) => {
         setSettings(prev => {
@@ -79,7 +128,9 @@ export default function Home() {
     useEffect(() => {
         const handleKeyDown = (e: globalThis.KeyboardEvent) => {
             if (e.key === 'Escape') {
-                if (isSettingsOpen) {
+                if (contextMenu.visible) {
+                    setContextMenu({ visible: false, x: 0, y: 0, targetWord: '' })
+                } else if (isSettingsOpen) {
                     setIsSettingsOpen(false)
                 } else if (isResetModalOpen) {
                     setIsResetModalOpen(false)
@@ -95,7 +146,7 @@ export default function Home() {
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isSettingsOpen, isResetModalOpen])
+    }, [isSettingsOpen, isResetModalOpen, contextMenu.visible])
 
     // Handle Window Focus (Auto-focus & Reset Awalan)
     useEffect(() => {
@@ -148,6 +199,19 @@ export default function Home() {
         setUsedWords([])
         localStorage.removeItem('kata_terpakai')
         setIsResetModalOpen(false)
+    }
+
+    // Handler spesifik untuk klik kanan pada kata
+    const handleWordContextMenu = (e: React.MouseEvent, word: string) => {
+        e.preventDefault()
+        e.stopPropagation() // Mencegah global context menu menimpa
+
+        const menuWidth = 220
+        const menuHeight = 200 // Sedikit lebih tinggi karena ada opsi targetWord (KBBI)
+        const x = e.clientX + menuWidth > window.innerWidth ? window.innerWidth - menuWidth - 10 : e.clientX
+        const y = e.clientY + menuHeight > window.innerHeight ? window.innerHeight - menuHeight - 10 : e.clientY
+
+        setContextMenu({ visible: true, x, y, targetWord: word })
     }
 
     // Logika Pencarian
@@ -233,6 +297,68 @@ export default function Home() {
             </Head>
 
             <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(to_right,#dad4bb_1px,transparent_1px),linear-gradient(to_bottom,#dad4bb_1px,transparent_1px)] bg-size-[40px_40px]"></div>
+
+            {/* CUSTOM CONTEXT MENU (KLIK KANAN) */}
+            <AnimatePresence>
+                {contextMenu.visible && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{
+                            opacity: [0, 0.8, 0.4, 1],
+                            filter: ["blur(2px)", "blur(0px)", "blur(1px)", "blur(0px)"]
+                        }}
+                        exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.15 } }}
+                        transition={{ duration: 0.25, ease: "linear", times: [0, 0.3, 0.6, 1] }}
+                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                        className="fixed z-[100] bg-[#1a1917] border border-[#dad4bb]/50 w-[220px] shadow-[0_0_20px_rgba(218,212,187,0.1)] p-2 font-mono"
+                    >
+                        <div className="absolute -top-1 -left-1 w-1.5 h-1.5 bg-[#dad4bb]/80"></div>
+                        <div className="absolute -bottom-1 -right-1 w-1.5 h-1.5 bg-[#dad4bb]/80"></div>
+
+                        <div className="text-[#dad4bb]/40 text-[10px] uppercase tracking-widest border-b border-[#dad4bb]/20 pb-2 mb-2 px-2 select-none">
+                            [ SYSTEM_OVERRIDE ]
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            {/* Opsi KBBI - Hanya muncul jika ada kata yang diklik kanan */}
+                            {contextMenu.targetWord && (
+                                <>
+                                    <a
+                                        href={`https://kbbi.kemendikdasmen.go.id/entri/${contextMenu.targetWord}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() => setContextMenu(prev => ({ ...prev, visible: false, targetWord: '' }))}
+                                        className="text-left px-2 py-2 text-xs font-bold text-[#11100f] bg-[#dad4bb] hover:bg-[#dad4bb]/80 uppercase tracking-widest transition cursor-pointer flex items-center gap-2"
+                                    >
+                                        <span>{'>>'}</span> SEARCH_KBBI
+                                    </a>
+                                    <div className="border-t border-[#dad4bb]/20 my-1"></div>
+                                </>
+                            )}
+
+                            <button
+                                onClick={() => { setIsSettingsOpen(true); setContextMenu(prev => ({ ...prev, visible: false })) }}
+                                className="text-left px-2 py-2 text-xs text-[#dad4bb]/80 hover:bg-[#dad4bb] hover:text-[#11100f] uppercase tracking-widest transition cursor-pointer"
+                            >
+                                {'>'} Settings
+                            </button>
+                            <button
+                                onClick={() => { handleResetUsedWords(); setContextMenu(prev => ({ ...prev, visible: false })) }}
+                                className="text-left px-2 py-2 text-xs text-[#dad4bb]/80 hover:bg-[#dad4bb] hover:text-[#11100f] uppercase tracking-widest transition cursor-pointer"
+                            >
+                                {'>'} Clear_Cache
+                            </button>
+                            <div className="border-t border-[#dad4bb]/20 my-1"></div>
+                            <button
+                                onClick={() => window.location.reload()}
+                                className="text-left px-2 py-2 text-xs text-[#dad4bb]/80 hover:bg-[#dad4bb] hover:text-[#11100f] uppercase tracking-widest transition cursor-pointer"
+                            >
+                                {'>'} Reboot_Sys
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <main className="max-w-5xl mx-auto space-y-6 relative z-10">
 
@@ -362,8 +488,9 @@ export default function Home() {
                                 <span
                                     key={`used-${word}`}
                                     onClick={() => toggleWordUsage(word)}
+                                    onContextMenu={(e) => handleWordContextMenu(e, word)}
                                     className="text-xs font-mono tracking-widest text-[#dad4bb]/30 line-through cursor-pointer hover:text-[#dad4bb] transition select-none"
-                                    title="Klik untuk membatalkan status terpakai"
+                                    title="Klik kiri: batal pakai | Klik kanan: opsi"
                                 >
                                     {word}
                                 </span>
@@ -402,9 +529,11 @@ export default function Home() {
                                                                 <div
                                                                     key={word}
                                                                     onClick={() => toggleWordUsage(word)}
+                                                                    onContextMenu={(e) => handleWordContextMenu(e, word)}
                                                                     className={`border px-4 py-2 text-sm transition cursor-pointer select-none
                                                                         ${isUsed ? 'border-dashed border-[#dad4bb]/20 text-[#dad4bb]/30 line-through bg-[#dad4bb]/5' : 'border-[#dad4bb]/40 text-[#dad4bb] hover:bg-[#dad4bb]/10'}
                                                                     `}
+                                                                    title={isUsed ? "Klik kiri: batal pakai | Klik kanan: opsi" : "Klik kiri: tandai terpakai | Klik kanan: opsi"}
                                                                 >
                                                                     {word}
                                                                 </div>
@@ -423,10 +552,11 @@ export default function Home() {
                                                 <div
                                                     key={word}
                                                     onClick={() => toggleWordUsage(word)}
+                                                    onContextMenu={(e) => handleWordContextMenu(e, word)}
                                                     className={`border px-4 py-2 text-sm transition cursor-pointer select-none
                                                         ${isUsed ? 'border-dashed border-[#dad4bb]/20 text-[#dad4bb]/30 line-through bg-[#dad4bb]/5' : 'border-[#dad4bb]/40 text-[#dad4bb] hover:bg-[#dad4bb]/10'}
                                                     `}
-                                                    title={isUsed ? "Batalkan pemakaian" : "Klik untuk menandai terpakai"}
+                                                    title={isUsed ? "Klik kiri: batal pakai | Klik kanan: opsi" : "Klik kiri: tandai terpakai | Klik kanan: opsi"}
                                                 >
                                                     {word}
                                                 </div>
@@ -458,10 +588,11 @@ export default function Home() {
                                                 <div
                                                     key={word}
                                                     onClick={() => toggleWordUsage(word)}
+                                                    onContextMenu={(e) => handleWordContextMenu(e, word)}
                                                     className={`border px-3 py-1 text-md transition cursor-pointer select-none
                                                         ${isUsed ? 'border-dashed border-[#dad4bb]/20 text-[#dad4bb]/30 line-through bg-[#dad4bb]/5' : 'border-[#dad4bb]/30 text-[#dad4bb]/70 bg-[#11100f] hover:bg-[#dad4bb]/10'}
                                                     `}
-                                                    title={isUsed ? "Batalkan pemakaian" : "Klik untuk menandai terpakai"}
+                                                    title={isUsed ? "Klik kiri: batal pakai | Klik kanan: opsi" : "Klik kiri: tandai terpakai | Klik kanan: opsi"}
                                                 >
                                                     {word}
                                                 </div>
@@ -476,7 +607,7 @@ export default function Home() {
                     </div>
                 )}
 
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center pb-8">
                     <p className="font-mono text-[#dad4bb]/60 text-xs uppercase tracking-widest">
                         Created with Love by Al
                     </p>
