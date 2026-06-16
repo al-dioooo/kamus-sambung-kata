@@ -1,33 +1,87 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GetServerSideProps } from 'next'
 import Head from 'next/head'
 import Link from 'next/link'
-import fs from 'fs/promises'
-import path from 'path'
 import { Ac, ChevronBack, Grid, MessagePlus, Plus, Save, Search, WarningBox } from '@/components/icons/pixel'
+import { readWords } from '@/lib/word-data'
+import {
+    ADMIN_ITEMS_PER_PAGE,
+    DYNAMIC_FETCH_DEBOUNCE_MS,
+    getAdminWordPage,
+    type AdminWordsResponse,
+} from '@/lib/word-search'
 
 interface AdminProps {
-    initialWords: string[]
+    initialData: AdminWordsResponse
 }
 
-export default function Admin({ initialWords }: AdminProps) {
-    const [words, setWords] = useState<string[]>(initialWords)
+export default function Admin({ initialData }: AdminProps) {
+    const [words, setWords] = useState<string[]>(initialData.words)
+    const [totalMatches, setTotalMatches] = useState(initialData.total)
+    const [totalWords, setTotalWords] = useState(initialData.totalWords)
+    const [totalPages, setTotalPages] = useState(initialData.totalPages)
     const [newWord, setNewWord] = useState('')
     const [statusMsg, setStatusMsg] = useState('')
+    const [isFetching, setIsFetching] = useState(false)
 
     const [prefix, setPrefix] = useState('')
     const [suffixInput, setSuffixInput] = useState('')
     const [suffixTags, setSuffixTags] = useState<string[]>([])
 
-    const [currentPage, setCurrentPage] = useState(1)
-    const ITEMS_PER_PAGE = 100
+    const [currentPage, setCurrentPage] = useState(initialData.currentPage)
 
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [wordToDelete, setWordToDelete] = useState('')
 
+    const applyAdminData = (data: AdminWordsResponse) => {
+        setWords(data.words)
+        setTotalMatches(data.total)
+        setTotalWords(data.totalWords)
+        setTotalPages(data.totalPages)
+        setCurrentPage(data.currentPage)
+    }
+
+    const fetchAdminWords = useCallback(async (page: number, signal?: AbortSignal) => {
+        const params = new URLSearchParams({
+            scope: 'admin',
+            page: String(page),
+            pageSize: String(ADMIN_ITEMS_PER_PAGE),
+        })
+        if (prefix.trim()) params.set('prefix', prefix.trim())
+        suffixTags.forEach((tag) => {
+            if (tag.trim()) params.append('suffix', tag.trim())
+        })
+
+        setIsFetching(true)
+
+        try {
+            const res = await fetch(`/api/words?${params.toString()}`, { signal })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const data: AdminWordsResponse = await res.json()
+            applyAdminData(data)
+        } catch {
+            if (signal?.aborted) return
+            setStatusMsg('[ERROR]: GAGAL MEMUAT FILTER DATABASE. MENAMPILKAN DATA TERAKHIR.')
+        } finally {
+            if (!signal?.aborted) setIsFetching(false)
+        }
+    }, [prefix, suffixTags])
+
     useEffect(() => {
         setCurrentPage(1)
     }, [prefix, suffixTags])
+
+    useEffect(() => {
+        const controller = new AbortController()
+        const timeoutId = window.setTimeout(() => {
+            fetchAdminWords(currentPage, controller.signal)
+        }, DYNAMIC_FETCH_DEBOUNCE_MS)
+
+        return () => {
+            window.clearTimeout(timeoutId)
+            controller.abort()
+        }
+    }, [currentPage, fetchAdminWords])
 
     const addSuffixTag = (e: React.FormEvent) => {
         e.preventDefault()
@@ -41,23 +95,6 @@ export default function Admin({ initialWords }: AdminProps) {
     const removeSuffixTag = (tagToRemove: string) => {
         setSuffixTags(suffixTags.filter((tag) => tag !== tagToRemove))
     }
-
-    const { filteredWords, paginatedWords, totalPages } = useMemo(() => {
-        const cleanPrefix = prefix.trim().toLowerCase()
-        let filtered = words
-
-        if (cleanPrefix) filtered = filtered.filter(w => w.startsWith(cleanPrefix))
-        if (suffixTags.length > 0) filtered = filtered.filter(w => suffixTags.some(tag => w.endsWith(tag)))
-
-        const total = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1
-        const validCurrentPage = Math.min(currentPage, total)
-        if (currentPage !== validCurrentPage) setCurrentPage(validCurrentPage)
-
-        const startIndex = (validCurrentPage - 1) * ITEMS_PER_PAGE
-        const paginated = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-
-        return { filteredWords: filtered, paginatedWords: paginated, totalPages: total }
-    }, [words, prefix, suffixTags, currentPage])
 
     const handleAddWord = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -76,7 +113,7 @@ export default function Admin({ initialWords }: AdminProps) {
         if (res.ok) {
             setNewWord('')
             setStatusMsg(`[SYS_MSG]: KATA "${cleanWord}" BERHASIL DIINPUT.`)
-            if (!words.includes(cleanWord)) setWords([...words, cleanWord].sort())
+            await fetchAdminWords(currentPage)
         } else {
             setStatusMsg(`[ERROR]: ${data.error.toUpperCase()}`)
         }
@@ -95,8 +132,8 @@ export default function Admin({ initialWords }: AdminProps) {
         })
 
         if (res.ok) {
-            setWords(words.filter(w => w !== wordToDelete))
             setStatusMsg(`[SYS_MSG]: KATA "${wordToDelete}" BERHASIL DIBASMI.`)
+            await fetchAdminWords(currentPage)
         } else {
             setStatusMsg('[ERROR]: GAGAL MENGHAPUS KATA.')
         }
@@ -158,8 +195,8 @@ export default function Admin({ initialWords }: AdminProps) {
 
                         {/* Informasi Database */}
                         <div className="flex flex-col h-fit bg-[#11100f] border border-[#dad4bb]/30 p-4 text-sm font-mono">
-                            <p className="text-[#dad4bb]/60 tracking-widest">TOTAL ENTRIES IN DB: <span className="text-[#dad4bb] font-bold">{words.length}</span></p>
-                            <p className="text-[#dad4bb]/60 tracking-widest mt-1">STATUS: <span className="text-[#dad4bb]">ONLINE & SYNCED</span></p>
+                            <p className="text-[#dad4bb]/60 tracking-widest">TOTAL ENTRIES IN DB: <span className="text-[#dad4bb] font-bold">{totalWords}</span></p>
+                            <p className="text-[#dad4bb]/60 tracking-widest mt-1">STATUS: <span className="text-[#dad4bb]">{isFetching ? 'SYNCING FILTER' : 'ONLINE & SYNCED'}</span></p>
                         </div>
                     </div>
 
@@ -207,7 +244,7 @@ export default function Admin({ initialWords }: AdminProps) {
                 <div className="border border-[#dad4bb]/30 p-6 bg-[#1a1917]">
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl flex items-center gap-4 font-bold text-[#dad4bb] tracking-widest uppercase font-mono">
-                            <span className="text-[#dad4bb]/50"><Grid /></span> DATA_SET <span className="text-[#dad4bb]/50 text-sm">[{filteredWords.length} MATCHES]</span>
+                            <span className="text-[#dad4bb]/50"><Grid /></span> DATA_SET <span className="text-[#dad4bb]/50 text-sm">[{totalMatches} MATCHES]</span>
                         </h2>
 
                         {/* Pagination Controls */}
@@ -231,13 +268,13 @@ export default function Admin({ initialWords }: AdminProps) {
                     </div>
 
                     {/* Grid Kata */}
-                    {paginatedWords.length === 0 ? (
+                    {words.length === 0 ? (
                         <div className="text-center py-10 text-[#dad4bb]/50 border border-[#dad4bb]/20 border-dashed tracking-widest uppercase text-sm">
                             [ NO DATA MATCHES YOUR CRITERIA ]
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                            {paginatedWords.map(word => (
+                            {words.map(word => (
                                 <div key={word} className="flex justify-between items-center bg-[#11100f] border border-[#dad4bb]/20 p-2 group hover:border-[#dad4bb] transition">
                                     <span className="text-[#dad4bb] truncate pr-2">{word}</span>
                                     <button
@@ -270,7 +307,7 @@ export default function Admin({ initialWords }: AdminProps) {
                             <span className="animate-pulse text-[#dad4bb]"><WarningBox /></span> WARNING
                         </h3>
                         <p className="text-[#dad4bb]/80 mb-6 tracking-widest text-sm leading-relaxed">
-                            Konfirmasi penghapusan kata <span className="text-[#11100f] font-bold bg-[#dad4bb] px-2 py-1">"{wordToDelete}"</span> dari database? Tindakan ini tidak dapat dibatalkan.
+                            Konfirmasi penghapusan kata <span className="text-[#11100f] font-bold bg-[#dad4bb] px-2 py-1">&quot;{wordToDelete}&quot;</span> dari database? Tindakan ini tidak dapat dibatalkan.
                         </p>
                         <div className="flex justify-end gap-4 border-t border-[#dad4bb]/20 pt-4">
                             <button
@@ -293,21 +330,12 @@ export default function Admin({ initialWords }: AdminProps) {
     )
 }
 
-export const getServerSideProps: GetServerSideProps = async () => {
-    const dataFilePath = path.join(process.cwd(), 'data', 'words.json')
-    let initialWords: string[] = []
-
-    try {
-        const fileContents = await fs.readFile(dataFilePath, 'utf8')
-        initialWords = JSON.parse(fileContents)
-        initialWords.sort()
-    } catch (error) {
-        console.error("Gagal membaca database saat SSR:", error)
-    }
+export const getServerSideProps: GetServerSideProps<AdminProps> = async () => {
+    const words = await readWords()
 
     return {
         props: {
-            initialWords,
+            initialData: getAdminWordPage(words, { page: 1, pageSize: ADMIN_ITEMS_PER_PAGE }),
         },
     }
 }

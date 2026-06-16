@@ -1,37 +1,39 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import fs from 'fs/promises';
-import path from 'path';
+import { readWords, writeWords } from '@/lib/word-data';
+import { getAdminWordPage, getMainWordSearchResponse, type AdminWordQuery, type MainWordQuery } from '@/lib/word-search';
 
-const dataDirectory = path.join(process.cwd(), 'data');
-const dataFilePath = path.join(dataDirectory, 'words.json');
-
-// Fungsi bantuan untuk memastikan folder dan file JSON ada
-async function ensureDataFileExists() {
-    try {
-        // Cek apakah folder 'data' ada, jika tidak, buat foldernya
-        await fs.access(dataDirectory);
-    } catch {
-        await fs.mkdir(dataDirectory, { recursive: true });
-    }
-
-    try {
-        // Cek apakah file 'words.json' ada, jika tidak, buat dengan array kosong
-        await fs.access(dataFilePath);
-    } catch {
-        await fs.writeFile(dataFilePath, '[]', 'utf8');
-    }
+function getFirstQueryValue(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
 }
 
-// Fungsi membaca data
-async function readData(): Promise<string[]> {
-    await ensureDataFileExists();
-    try {
-        const fileContents = await fs.readFile(dataFilePath, 'utf8');
-        return JSON.parse(fileContents);
-    } catch (error) {
-        console.error("Gagal membaca data:", error);
-        return [];
-    }
+function getQueryTags(value: string | string[] | undefined) {
+    if (!value) return [];
+    const values = Array.isArray(value) ? value : [value];
+    return values.flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function getQueryNumber(value: string | string[] | undefined) {
+    const parsed = Number(getFirstQueryValue(value));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getMainQuery(req: NextApiRequest): MainWordQuery {
+    return {
+        prefix: getFirstQueryValue(req.query.prefix),
+        middle: getFirstQueryValue(req.query.middle),
+        suffixTags: getQueryTags(req.query.suffix),
+        minLen: getQueryNumber(req.query.minLen),
+        maxLen: getQueryNumber(req.query.maxLen),
+    };
+}
+
+function getAdminQuery(req: NextApiRequest): AdminWordQuery {
+    return {
+        prefix: getFirstQueryValue(req.query.prefix),
+        suffixTags: getQueryTags(req.query.suffix),
+        page: getQueryNumber(req.query.page),
+        pageSize: getQueryNumber(req.query.pageSize),
+    };
 }
 
 export default async function handler(
@@ -44,7 +46,17 @@ export default async function handler(
     res.setHeader('Expires', '0');
 
     if (req.method === 'GET') {
-        const words = await readData();
+        const words = await readWords();
+        const scope = getFirstQueryValue(req.query.scope);
+
+        if (scope === 'main') {
+            return res.status(200).json(getMainWordSearchResponse(words, getMainQuery(req)));
+        }
+
+        if (scope === 'admin') {
+            return res.status(200).json(getAdminWordPage(words, getAdminQuery(req)));
+        }
+
         return res.status(200).json(words);
     }
 
@@ -55,14 +67,14 @@ export default async function handler(
 
             if (!cleanWord) return res.status(400).json({ error: 'Kata tidak boleh kosong' });
 
-            const words = await readData();
+            const words = await readWords();
             if (words.includes(cleanWord)) return res.status(400).json({ error: 'Kata sudah ada di kamus' });
 
             words.push(cleanWord);
             // Simpan kembali ke file
-            await fs.writeFile(dataFilePath, JSON.stringify(words, null, 2));
+            await writeWords(words);
 
-            return res.status(201).json({ message: 'Kata berhasil ditambahkan', words });
+            return res.status(201).json({ message: 'Kata berhasil ditambahkan', words: [...words].sort() });
         } catch (error) {
             // Menampilkan detail error 500 di terminal untuk mempermudah debug
             console.error("POST Error:", error);
@@ -75,14 +87,14 @@ export default async function handler(
             const { word } = req.body;
             const cleanWord = word?.trim().toLowerCase();
 
-            const words = await readData();
+            const words = await readWords();
             const newWords = words.filter((w) => w !== cleanWord);
 
             if (words.length === newWords.length) {
                 return res.status(404).json({ error: 'Kata tidak ditemukan' });
             }
 
-            await fs.writeFile(dataFilePath, JSON.stringify(newWords, null, 2));
+            await writeWords(newWords);
             return res.status(200).json({ message: 'Kata berhasil dihapus', words: newWords });
         } catch (error) {
             console.error("DELETE Error:", error);

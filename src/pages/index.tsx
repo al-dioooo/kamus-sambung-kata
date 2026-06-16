@@ -2,6 +2,16 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import Head from 'next/head'
 import { motion, AnimatePresence } from 'motion/react'
 import { Grid, MoreVertical, Plus, Reload, WarningBox } from '@/components/icons/pixel'
+import {
+    DYNAMIC_FETCH_DEBOUNCE_MS,
+    KAMUS_SETTINGS_STORAGE_KEY,
+    USED_WORDS_STORAGE_KEY,
+    filterMainWords,
+    hasMainSearchQuery,
+    type MainWordQuery,
+    type MainWordSearchResult,
+    type MainWordSearchResponse,
+} from '@/lib/word-search'
 
 // Interface untuk Settings
 interface KamusSettings {
@@ -11,6 +21,7 @@ interface KamusSettings {
     resetPrefixOnFocus: boolean
     autoFocusOnFocus: boolean
     groupMainResult: boolean
+    dynamicQueryFetch: boolean
 }
 
 const DEFAULT_SETTINGS: KamusSettings = {
@@ -19,12 +30,16 @@ const DEFAULT_SETTINGS: KamusSettings = {
     hideArchive: false,
     resetPrefixOnFocus: false,
     autoFocusOnFocus: false,
-    groupMainResult: false
+    groupMainResult: false,
+    dynamicQueryFetch: false
 }
+
+const EMPTY_SEARCH_RESULT: MainWordSearchResult = { utama: [], cadangan: [] }
 
 export default function Home() {
     const [words, setWords] = useState<string[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [isSettingsLoaded, setIsSettingsLoaded] = useState(false)
 
     // States untuk Input
     const [prefix, setPrefix] = useState('')
@@ -42,32 +57,69 @@ export default function Home() {
     const [settings, setSettings] = useState<KamusSettings>(DEFAULT_SETTINGS)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isResetModalOpen, setIsResetModalOpen] = useState(false)
+    const [dynamicResult, setDynamicResult] = useState<MainWordSearchResult>(EMPTY_SEARCH_RESULT)
+    const [dynamicTotalLoaded, setDynamicTotalLoaded] = useState(0)
+    const [dynamicStatus, setDynamicStatus] = useState<'idle' | 'prompt' | 'loading' | 'ready' | 'error'>('idle')
+    const [dynamicError, setDynamicError] = useState('')
+    const dynamicRequestId = useRef(0)
 
     // State untuk Custom Context Menu
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, targetWord: '' })
 
-    // Fetch data kata & Load Settings/Memori
+    // Load Settings/Memori sebelum menentukan mode fetching.
     useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            // Load data kata terpakai
+            const storedUsedWords = localStorage.getItem(USED_WORDS_STORAGE_KEY)
+            if (storedUsedWords) {
+                try { setUsedWords(JSON.parse(storedUsedWords)) } catch { }
+            }
+
+            // Load settings
+            const storedSettings = localStorage.getItem(KAMUS_SETTINGS_STORAGE_KEY)
+            if (storedSettings) {
+                try { setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(storedSettings) }) } catch { }
+            }
+
+            setIsSettingsLoaded(true)
+        }, 0)
+
+        return () => window.clearTimeout(timeoutId)
+    }, [])
+
+    useEffect(() => {
+        if (!isSettingsLoaded) return
+
+        if (settings.dynamicQueryFetch) {
+            const timeoutId = window.setTimeout(() => setIsLoading(false), 0)
+            return () => window.clearTimeout(timeoutId)
+        }
+
+        let isActive = true
+        const loadingTimeoutId = window.setTimeout(() => {
+            if (isActive) setIsLoading(true)
+        }, 0)
+
         fetch('/api/words')
-            .then((res) => res.json())
-            .then((data) => {
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                return res.json()
+            })
+            .then((data: string[]) => {
+                if (!isActive) return
                 setWords(data)
                 setIsLoading(false)
             })
-            .catch(() => setIsLoading(false))
+            .catch(() => {
+                if (!isActive) return
+                setIsLoading(false)
+            })
 
-        // Load data kata terpakai
-        const storedUsedWords = localStorage.getItem('kata_terpakai')
-        if (storedUsedWords) {
-            try { setUsedWords(JSON.parse(storedUsedWords)) } catch (e) { }
+        return () => {
+            isActive = false
+            window.clearTimeout(loadingTimeoutId)
         }
-
-        // Load settings
-        const storedSettings = localStorage.getItem('kamus_settings')
-        if (storedSettings) {
-            try { setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(storedSettings) }) } catch (e) { }
-        }
-    }, [])
+    }, [isSettingsLoaded, settings.dynamicQueryFetch])
 
     // Logika Custom Context Menu: Mencegah default klik kanan di SELURUH window & Handle Blur
     useEffect(() => {
@@ -119,7 +171,7 @@ export default function Home() {
     const updateSetting = (key: keyof KamusSettings) => {
         setSettings(prev => {
             const newSettings = { ...prev, [key]: !prev[key] }
-            localStorage.setItem('kamus_settings', JSON.stringify(newSettings))
+            localStorage.setItem(KAMUS_SETTINGS_STORAGE_KEY, JSON.stringify(newSettings))
             return newSettings
         })
     }
@@ -184,7 +236,7 @@ export default function Home() {
         setUsedWords(prev => {
             const isUsed = prev.includes(word)
             const newUsedWords = isUsed ? prev.filter(w => w !== word) : [...prev, word]
-            localStorage.setItem('kata_terpakai', JSON.stringify(newUsedWords))
+            localStorage.setItem(USED_WORDS_STORAGE_KEY, JSON.stringify(newUsedWords))
             return newUsedWords
         })
     }
@@ -197,7 +249,7 @@ export default function Home() {
     // Eksekusi reset kata terpakai
     const confirmResetUsedWords = () => {
         setUsedWords([])
-        localStorage.removeItem('kata_terpakai')
+        localStorage.removeItem(USED_WORDS_STORAGE_KEY)
         setIsResetModalOpen(false)
     }
 
@@ -214,61 +266,71 @@ export default function Home() {
         setContextMenu({ visible: true, x, y, targetWord: word })
     }
 
+    const mainQuery = useMemo<MainWordQuery>(() => ({
+        prefix,
+        middle,
+        suffixTags,
+        minLen: !settings.hideMinLen && minLen ? parseInt(minLen) : undefined,
+        maxLen: !settings.hideMaxLen && maxLen ? parseInt(maxLen) : undefined,
+    }), [prefix, middle, suffixTags, minLen, maxLen, settings.hideMinLen, settings.hideMaxLen])
+
+    const hasSearchQuery = useMemo(() => hasMainSearchQuery(mainQuery), [mainQuery])
+
+    const staticSearchResult = useMemo(() => {
+        return filterMainWords(words, mainQuery)
+    }, [words, mainQuery])
+
+    useEffect(() => {
+        if (!isSettingsLoaded || !settings.dynamicQueryFetch) return
+
+        if (!hasSearchQuery) {
+            dynamicRequestId.current += 1
+            return
+        }
+
+        const requestId = dynamicRequestId.current + 1
+        dynamicRequestId.current = requestId
+        const controller = new AbortController()
+        const timeoutId = window.setTimeout(() => {
+            setDynamicStatus('loading')
+            setDynamicError('')
+
+            const params = new URLSearchParams({ scope: 'main' })
+            if (mainQuery.prefix?.trim()) params.set('prefix', mainQuery.prefix.trim())
+            if (mainQuery.middle?.trim()) params.set('middle', mainQuery.middle.trim())
+            mainQuery.suffixTags?.forEach((tag) => {
+                if (tag.trim()) params.append('suffix', tag.trim())
+            })
+            if (typeof mainQuery.minLen === 'number' && Number.isFinite(mainQuery.minLen)) params.set('minLen', String(mainQuery.minLen))
+            if (typeof mainQuery.maxLen === 'number' && Number.isFinite(mainQuery.maxLen)) params.set('maxLen', String(mainQuery.maxLen))
+
+            fetch(`/api/words?${params.toString()}`, { signal: controller.signal })
+                .then((res) => {
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                    return res.json()
+                })
+                .then((data: MainWordSearchResponse) => {
+                    if (dynamicRequestId.current !== requestId) return
+                    setDynamicResult({ utama: data.utama, cadangan: data.cadangan })
+                    setDynamicTotalLoaded(data.totalLoaded)
+                    setDynamicStatus(data.requiresQuery ? 'prompt' : 'ready')
+                    setDynamicError('')
+                })
+                .catch((error) => {
+                    if (controller.signal.aborted || dynamicRequestId.current !== requestId) return
+                    setDynamicStatus('error')
+                    setDynamicError(error instanceof Error ? error.message : 'Network error')
+                })
+        }, DYNAMIC_FETCH_DEBOUNCE_MS)
+
+        return () => {
+            window.clearTimeout(timeoutId)
+            controller.abort()
+        }
+    }, [isSettingsLoaded, settings.dynamicQueryFetch, hasSearchQuery, mainQuery])
+
     // Logika Pencarian
-    const searchResult = useMemo(() => {
-        const cleanPrefix = prefix.trim().toLowerCase()
-        const cleanMiddle = middle.trim().toLowerCase()
-
-        if (!cleanPrefix && !cleanMiddle && suffixTags.length === 0) {
-            return { utama: [], cadangan: [] }
-        }
-
-        let baseWords = words
-        if (!settings.hideMinLen && minLen) baseWords = baseWords.filter(w => w.length >= parseInt(minLen))
-        if (!settings.hideMaxLen && maxLen) baseWords = baseWords.filter(w => w.length <= parseInt(maxLen))
-
-        const utama: string[] = []
-        const cadangan: string[] = []
-
-        if (cleanPrefix) {
-            const prefixMatched = baseWords.filter(w => w.startsWith(cleanPrefix))
-
-            prefixMatched.forEach(w => {
-                let isUtama = true
-
-                if (cleanMiddle) {
-                    const innerPart = w.substring(1, w.length - 1)
-                    if (!innerPart.includes(cleanMiddle)) isUtama = false
-                }
-
-                if (suffixTags.length > 0) {
-                    const matchSuffix = suffixTags.some(tag => w.endsWith(tag))
-                    if (!matchSuffix) isUtama = false
-                }
-
-                if (isUtama) utama.push(w)
-                else cadangan.push(w)
-            })
-        } else {
-            baseWords.forEach(w => {
-                let isUtama = true
-
-                if (cleanMiddle) {
-                    const innerPart = w.substring(1, w.length - 1)
-                    if (!innerPart.includes(cleanMiddle)) isUtama = false
-                }
-
-                if (suffixTags.length > 0) {
-                    const matchSuffix = suffixTags.some(tag => w.endsWith(tag))
-                    if (!matchSuffix) isUtama = false
-                }
-
-                if (isUtama) utama.push(w)
-            })
-        }
-
-        return { utama, cadangan }
-    }, [prefix, middle, suffixTags, minLen, maxLen, words, settings])
+    const searchResult = settings.dynamicQueryFetch ? (hasSearchQuery ? dynamicResult : EMPTY_SEARCH_RESULT) : staticSearchResult
 
     // Logika Grouping Hasil Utama
     const groupedUtama = useMemo(() => {
@@ -288,7 +350,17 @@ export default function Home() {
         return groups
     }, [searchResult.utama, suffixTags, settings.groupMainResult])
 
-    const isSearching = prefix.trim() !== '' || middle.trim() !== '' || suffixTags.length > 0
+    const isSearching = hasSearchQuery
+    const statusLabel = (() => {
+        if (!isSettingsLoaded) return 'Loading Settings...'
+        if (!settings.dynamicQueryFetch) return isLoading ? 'Loading Data...' : `[ ${words.length} ] Data Loaded`
+        if (!hasSearchQuery) return '[ START TO TYPE THE SEARCH QUERY TO LOAD DATA ]'
+        if (dynamicStatus === 'prompt') return '[ START TO TYPE THE SEARCH QUERY TO LOAD DATA ]'
+        if (dynamicStatus === 'loading') return '[ SEARCHING SERVER DATA... ]'
+        if (dynamicStatus === 'error') return `[ DYNAMIC SEARCH FAILED - SHOWING LAST RESULT: ${dynamicError || 'NETWORK ERROR'} ]`
+        if (dynamicStatus === 'ready') return `[ ${dynamicTotalLoaded} ] Dynamic Matches`
+        return '[ DYNAMIC QUERY MODE ENABLED ]'
+    })()
 
     return (
         <div className="min-h-screen bg-[#11100f] text-[#dad4bb] font-sans p-4 md:p-8">
@@ -461,7 +533,7 @@ export default function Home() {
                     </div>
 
                     <div className="text-xs text-[#dad4bb]/50 tracking-widest uppercase font-mono mt-4">
-                        {isLoading ? "Loading Data..." : "[ " + words.length + " ] Data Loaded"}
+                        {statusLabel}
                     </div>
 
                     <div>
@@ -499,8 +571,22 @@ export default function Home() {
                     </div>
                 )}
 
+                {settings.dynamicQueryFetch && !isSearching && (
+                    <div className="border-y-2 border-[#dad4bb]/20 p-6 bg-[#1a1917]">
+                        <p className="text-[#dad4bb]/60 text-xs font-mono tracking-widest uppercase">
+                            [ START TO TYPE THE SEARCH QUERY TO LOAD DATA ]
+                        </p>
+                    </div>
+                )}
+
                 {isSearching && (
                     <div className="space-y-6">
+                        {settings.dynamicQueryFetch && dynamicStatus === 'error' && (
+                            <div className="border border-[#dad4bb]/30 bg-[#11100f] p-4 text-[#dad4bb]/60 text-xs font-mono tracking-widest uppercase">
+                                [ DYNAMIC SEARCH FAILED. SHOWING LAST SUCCESSFUL RESULT. ]
+                            </div>
+                        )}
+
                         <div className="border-y-2 border-[#dad4bb]/40 p-6 bg-[#1a1917]">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-xl md:text-2xl font-bold font-mono text-[#dad4bb] tracking-widest flex items-center gap-4 uppercase">
@@ -738,6 +824,19 @@ export default function Home() {
                                     </div>
                                     <span>Group Hasil Utama (Berdasarkan list Akhiran Tag)</span>
                                 </label>
+
+                                <label className="flex items-start gap-4 cursor-pointer hover:text-[#dad4bb] transition leading-relaxed group">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.dynamicQueryFetch}
+                                        onChange={() => updateSetting('dynamicQueryFetch')}
+                                        className="hidden"
+                                    />
+                                    <div className={`w-4 h-4 flex items-center justify-center shrink-0 mt-0.5 border transition-colors ${settings.dynamicQueryFetch ? 'bg-[#dad4bb] border-[#dad4bb]' : 'border-[#dad4bb]/50 group-hover:border-[#dad4bb]'}`}>
+                                        {settings.dynamicQueryFetch && <div className="w-2 h-2 bg-[#1a1917]" />}
+                                    </div>
+                                    <span>Dynamic Query Fetch (Load data from search query)</span>
+                                </label>
                             </div>
 
                             <div className="flex justify-end border-t border-[#dad4bb]/20 pt-6">
@@ -796,7 +895,7 @@ export default function Home() {
                             </h3>
 
                             <p className="text-[#dad4bb]/80 mb-8 tracking-widest text-sm leading-relaxed font-mono">
-                                Eksekusi protokol pembersihan? Ini akan menghapus permanen semua riwayat "Kata Terpakai" dari memori lokal.
+                                Eksekusi protokol pembersihan? Ini akan menghapus permanen semua riwayat &quot;Kata Terpakai&quot; dari memori lokal.
                             </p>
 
                             <div className="flex justify-end gap-4 border-t border-[#dad4bb]/20 pt-6">
