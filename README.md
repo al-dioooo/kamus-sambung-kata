@@ -1,8 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Kamus Sambung Kata
+
+A word dictionary and lookup tool for [**Sambung Kata**](https://www.roblox.com/id/games/130342654546662/Sambung-Kata), a word-chain game on Roblox. This app helps players search for valid next words during a match, and gives admins a way to curate the dictionary behind the game.
+
+## About the word list
+
+The dictionary mixes a few sources:
+
+- **KBBI** (Kamus Besar Bahasa Indonesia) as the base vocabulary.
+- **English** loanwords that are commonly accepted in casual play.
+- **Custom / community words** requested by players through the game's Discord server — including seasonal META words and other additions meant to keep gameplay fresh.
+
+New words are checked for validity (via the Discord community's `Sierra` bot) before being merged in, and words that turn out to be invalid are moved out of the active list rather than deleted outright.
+
+- [`data/words.json`](data/words.json) — the active dictionary served to the game.
+- [`data/removed-words.json`](data/removed-words.json) — words taken out of the active list after failing validation.
+- [`data/old-words.json`](data/old-words.json) — legacy/archived word list kept for reference.
+
+## Features
+
+- **Lookup page** (`/`) — search by prefix, middle, suffix, and length to find candidate next words, with optional dynamic (server-side) querying for large result sets.
+- **Admin page** (`/admin`) — paginated browsing, adding, and removing dictionary entries.
+- **Word API** (`/api/words`) — reads and writes `data/words.json`:
+  - `GET /api/words` — full word list, or a filtered result with `?scope=main` (game lookup) / `?scope=admin` (admin browsing), supporting `prefix`, `middle`, `suffix`, `minLen`, `maxLen`, `page`, `pageSize`.
+  - `POST /api/words` — add a word (`{ "word": "..." }`).
+  - `DELETE /api/words` — remove a word (`{ "word": "..." }`).
 
 ## Getting Started
 
-First, run the development server:
+Run the development server:
 
 ```bash
 npm run dev
@@ -14,27 +39,14 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) for the lookup page, or [http://localhost:3000/admin](http://localhost:3000/admin) for the admin dictionary manager.
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+## Tech stack
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
-
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
-
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Built with [Next.js](https://nextjs.org) (Pages Router), React, Tailwind CSS, and [Motion](https://motion.dev) for animations.
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The easiest way to deploy this app is via the [Vercel Platform](https://vercel.com/new).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+Check out the [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
