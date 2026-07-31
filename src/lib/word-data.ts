@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gte, lte, sql } from 'drizzle-orm'
 import { db } from './db/client'
 import { words } from './db/schema'
 
@@ -42,4 +42,43 @@ export async function removeWord(word: string): Promise<boolean> {
         .returning({ id: words.id })
 
     return result.length > 0
+}
+
+function buildLengthConditions(minLen?: number, maxLen?: number) {
+    const conditions = []
+    if (typeof minLen === 'number' && Number.isFinite(minLen)) {
+        conditions.push(gte(sql<number>`length(${words.word})`, minLen))
+    }
+    if (typeof maxLen === 'number' && Number.isFinite(maxLen)) {
+        conditions.push(lte(sql<number>`length(${words.word})`, maxLen))
+    }
+    return conditions
+}
+
+export async function readActiveWordsByPrefix(prefix: string, minLen?: number, maxLen?: number): Promise<string[]> {
+    const conditions = [
+        eq(words.status, 'active'),
+        sql`${words.word} like ${prefix + '%'}`,
+        ...buildLengthConditions(minLen, maxLen),
+    ]
+
+    const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(and(...conditions))
+        .orderBy(words.word)
+
+    return rows.map((row) => row.word)
+}
+
+export async function readActiveWordsWithLengthRange(minLen?: number, maxLen?: number): Promise<string[]> {
+    const conditions = [eq(words.status, 'active'), ...buildLengthConditions(minLen, maxLen)]
+
+    const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(and(...conditions))
+        .orderBy(words.word)
+
+    return rows.map((row) => row.word)
 }
