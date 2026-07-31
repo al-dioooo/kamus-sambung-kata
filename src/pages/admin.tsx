@@ -3,11 +3,10 @@ import { GetServerSideProps } from 'next'
 import Head from 'next/head'
 import Link from 'next/link'
 import { Ac, ChevronBack, Grid, MessagePlus, Plus, Save, Search, WarningBox } from '@/components/icons/pixel'
-import { readWords } from '@/lib/word-data'
+import { getAdminWordsPage } from '@/lib/word-data'
 import {
     ADMIN_ITEMS_PER_PAGE,
     DYNAMIC_FETCH_DEBOUNCE_MS,
-    getAdminWordPage,
     type AdminWordsResponse,
 } from '@/lib/word-search'
 
@@ -331,11 +330,9 @@ export default function Admin({ initialData }: AdminProps) {
 }
 
 export const getServerSideProps: GetServerSideProps<AdminProps> = async () => {
-    const words = await readWords()
+    const initialData = await getAdminWordsPage({ page: 1, pageSize: ADMIN_ITEMS_PER_PAGE })
 
     return {
-        props: {
-            initialData: getAdminWordPage(words, { page: 1, pageSize: ADMIN_ITEMS_PER_PAGE }),
-        },
+        props: { initialData },
     }
 }
