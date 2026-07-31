@@ -5,9 +5,11 @@ import { words } from './db/schema'
 import { readWords, addWord, removeWord, readActiveWordsByPrefix, readActiveWordsWithLengthRange, countActiveWordsByPrefix, readActiveWordsByPrefixPage, getAdminWordsPage } from './word-data'
 
 const TEST_WORD = `__test_word_${Date.now()}`
+const TEST_WORD_2 = `__other_word_${Date.now()}`
 
 afterEach(async () => {
     await db.delete(words).where(eq(words.word, TEST_WORD))
+    await db.delete(words).where(eq(words.word, TEST_WORD_2))
 })
 
 describe('addWord', () => {
@@ -114,5 +116,24 @@ describe('getAdminWordsPage', () => {
         const suffix = TEST_WORD.slice(-3)
         const response = await getAdminWordsPage({ prefix: TEST_WORD.slice(0, 8), suffixTags: [suffix], page: 1, pageSize: 10 })
         expect(response.words).toContain(TEST_WORD)
+    })
+
+    it('returns the true total active word count, not the prefix-narrowed count, when both prefix and suffix tags are given', async () => {
+        await addWord(TEST_WORD)
+        await addWord(TEST_WORD_2)
+
+        const trueTotal = await countActiveWordsByPrefix()
+        const suffix = TEST_WORD.slice(-3)
+        const response = await getAdminWordsPage({
+            prefix: TEST_WORD.slice(0, 8),
+            suffixTags: [suffix],
+            page: 1,
+            pageSize: 10,
+        })
+
+        expect(response.words).toContain(TEST_WORD)
+        expect(response.words).not.toContain(TEST_WORD_2)
+        expect(response.totalWords).toBe(trueTotal)
+        expect(response.totalWords).toBeGreaterThan(1)
     })
 })

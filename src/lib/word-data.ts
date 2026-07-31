@@ -137,5 +137,7 @@ export async function getAdminWordsPage(query: AdminWordQuery): Promise<AdminWor
     }
 
     const narrowed = cleanPrefix ? await readActiveWordsByPrefix(cleanPrefix) : await readWords()
-    return getAdminWordPage(narrowed, query)
+    const result = getAdminWordPage(narrowed, query)
+    const totalWords = cleanPrefix ? await countActiveWordsByPrefix() : result.totalWords
+    return { ...result, totalWords }
 }
