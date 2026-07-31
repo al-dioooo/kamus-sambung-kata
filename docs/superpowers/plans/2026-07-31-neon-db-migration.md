@@ -14,7 +14,7 @@
 - `src/lib/word-search.ts` must not change — it's imported by the browser bundle (`src/pages/index.tsx`) as well as the server, and its pure-function contracts are the regression baseline for the comparison script in Task 11.
 - DELETE is a soft delete (`status='removed'`); POST is an upsert-by-word that revives removed/archived words back to `active`. Both are intentional behavior changes, already approved in the design spec.
 - Only `status='active'` rows are ever queried by the live app at request time — indexes are partial (`where status = 'active'`) accordingly.
-- No mocking the database in tests — integration tests in this plan run against a real Neon **dev branch**, never a mock/in-memory stand-in, so a passing test means the real query actually works.
+- No mocking the database in tests — integration tests in this plan run against a real Neon **development branch**, never a mock/in-memory stand-in, so a passing test means the real query actually works.
 
 ---
 
@@ -30,21 +30,18 @@
 **Interfaces:**
 - Produces: `DATABASE_URL` env var (production/dev connection strings), `drizzle.config.ts` used by Task 2's `drizzle-kit push`.
 
-- [ ] **Step 1: Provision Neon**
+- [x] **Step 1: Provision Neon** (already done manually — see below)
 
-In the Vercel dashboard, add the **Neon** integration to this project (Storage tab → Marketplace → Neon). This creates a Neon project and injects `DATABASE_URL` into the Vercel project's production env vars automatically. In the Neon console, create a `dev` branch off the default `production` branch (Neon → Branches → New Branch). Copy the `dev` branch's connection string — this is what local development and tests will use, keeping it fully separate from production data.
+The Vercel-Neon integration was added to the project, injecting `DATABASE_URL` into the Vercel project's production env vars. A `development` branch was created off `production` in the Neon console. That Neon project already hosts another database unrelated to this app, so a dedicated `kamus_sambung_kata` database was created on the `development` branch specifically for this dictionary (`CREATE DATABASE kamus_sambung_kata`), keeping it fully separate both from production data and from the project's other database.
 
-- [ ] **Step 2: Add env files**
+- [x] **Step 2: Add env files** (already done manually — see below)
 
-Create `.env.local`:
+`.env.local` and `.env.test` both point at the `development` branch's `kamus_sambung_kata` database:
 ```
-DATABASE_URL=<paste the Neon "dev" branch connection string here>
+DATABASE_URL=postgresql://neondb_owner:<password>@ep-calm-term-aq2spqqu-pooler.c-8.us-east-1.aws.neon.tech/kamus_sambung_kata?sslmode=require&channel_binding=require
 ```
 
-Create `.env.test` (same dev branch — tests and local dev share it, both isolated from production):
-```
-DATABASE_URL=<paste the Neon "dev" branch connection string here>
-```
+The implementer does not need to create these files — they already exist in the worktree, gitignored. Verify with `git check-ignore -q .env.local .env.test && echo ignored`.
 
 - [ ] **Step 3: Confirm both files are gitignored**
 
@@ -60,8 +57,8 @@ Expected: both paths printed (confirms they're ignored)
 - [ ] **Step 4: Install dependencies**
 
 ```bash
-npm install drizzle-orm @neondatabase/serverless
-npm install -D drizzle-kit tsx vitest dotenv
+yarn add drizzle-orm @neondatabase/serverless
+yarn add -D drizzle-kit tsx vitest dotenv
 ```
 
 - [ ] **Step 5: Add drizzle config**
@@ -137,9 +134,9 @@ export const words = pgTable('words', {
 })
 ```
 
-- [ ] **Step 2: Push the schema to the dev branch**
+- [ ] **Step 2: Push the schema to the development branch**
 
-Run: `npm run db:push`
+Run: `yarn db:push`
 Expected: drizzle-kit prints the `CREATE TYPE`/`CREATE TABLE` statements it's about to run and applies them; exits 0.
 
 - [ ] **Step 3: Verify the table exists**
@@ -214,7 +211,7 @@ main().catch((error) => {
 })
 ```
 
-- [ ] **Step 3: Run it against the dev branch**
+- [ ] **Step 3: Run it against the development branch**
 
 Run: `npx tsx scripts/apply-sql.ts drizzle/0001_indexes.sql`
 Expected: prints each statement and "Done." with exit code 0.
@@ -300,8 +297,8 @@ describe('db client', () => {
 
 - [ ] **Step 4: Run it**
 
-Run: `npm test -- src/lib/db/client.test.ts`
-Expected: PASS (this hits the real Neon dev branch — if it fails, check `.env.test`'s `DATABASE_URL` first)
+Run: `yarn test src/lib/db/client.test.ts`
+Expected: PASS (this hits the real Neon development branch — if it fails, check `.env.test`'s `DATABASE_URL` first)
 
 - [ ] **Step 5: Commit**
 
@@ -392,7 +389,7 @@ describe('readWords', () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: FAIL — `addWord`/`removeWord`/`readWords` not exported from `./word-data` (current file only exports `readWords`/`writeWords`/`ensureDataFileExists` backed by `fs`)
 
 - [ ] **Step 3: Rewrite word-data.ts**
@@ -449,7 +446,7 @@ export async function removeWord(word: string): Promise<boolean> {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
@@ -503,7 +500,7 @@ describe('readActiveWordsWithLengthRange', () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: FAIL — `readActiveWordsByPrefix`/`readActiveWordsWithLengthRange` not exported
 
 - [ ] **Step 3: Add the functions**
@@ -557,7 +554,7 @@ export async function readActiveWordsWithLengthRange(minLen?: number, maxLen?: n
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: PASS (8 tests)
 
 - [ ] **Step 5: Commit**
@@ -620,7 +617,7 @@ describe('getAdminWordsPage', () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: FAIL — `countActiveWordsByPrefix`/`readActiveWordsByPrefixPage`/`getAdminWordsPage` not exported
 
 - [ ] **Step 3: Add the functions**
@@ -690,7 +687,7 @@ export async function getAdminWordsPage(query: AdminWordQuery): Promise<AdminWor
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- src/lib/word-data.test.ts`
+Run: `yarn test src/lib/word-data.test.ts`
 Expected: PASS (12 tests)
 
 - [ ] **Step 5: Commit**
@@ -830,7 +827,7 @@ Note: the POST/DELETE JSON responses no longer echo back the full `words` array 
 
 - [ ] **Step 2: Manual verification**
 
-Run: `npm run dev`, then in another terminal:
+Run: `yarn dev`, then in another terminal:
 ```bash
 curl -s "http://localhost:3000/api/words?scope=main&prefix=aba" | head -c 300
 curl -s -X POST http://localhost:3000/api/words -H "Content-Type: application/json" -d '{"word":"testkata123"}'
@@ -902,7 +899,7 @@ export const getServerSideProps: GetServerSideProps<AdminProps> = async () => {
 
 - [ ] **Step 2: Manual verification**
 
-Run: `npm run dev`, open `http://localhost:3000/admin`.
+Run: `yarn dev`, open `http://localhost:3000/admin`.
 Expected: the word list loads on first render (no client-side loading flash), pagination controls work, add/delete still function end-to-end.
 
 - [ ] **Step 3: Commit**
@@ -989,9 +986,9 @@ main().catch((error) => {
 })
 ```
 
-- [ ] **Step 2: Run against the dev branch**
+- [ ] **Step 2: Run against the development branch**
 
-Run: `npm run migrate:data`
+Run: `yarn migrate:data`
 Expected: logs batch progress and ends with "Migration complete." with exit code 0.
 
 - [ ] **Step 3: Spot-check row counts**
@@ -1087,9 +1084,9 @@ main().catch((error) => {
 })
 ```
 
-- [ ] **Step 2: Run it against the dev branch** (after Task 10's migration has populated it from the same `data/words.json`)
+- [ ] **Step 2: Run it against the development branch** (after Task 10's migration has populated it from the same `data/words.json`)
 
-Run: `npm run compare:data`
+Run: `yarn compare:data`
 Expected: `OK` for every query line, ending with "All comparisons matched." and exit code 0. If any line prints `FAIL`, stop and investigate before proceeding — do not run the production migration in Task 12 until this passes cleanly.
 
 - [ ] **Step 3: Commit**
@@ -1109,9 +1106,9 @@ git commit -m "feat(scripts): add old-vs-new query result comparison script"
 
 In the Neon console, switch the active branch context to `production` (or set `DATABASE_URL` in your shell to the production connection string for this one command only — do not put it in `.env.local`). Then run:
 ```bash
-DATABASE_URL=<production connection string> npm run db:push
+DATABASE_URL=<production connection string> yarn db:push
 DATABASE_URL=<production connection string> npx tsx scripts/apply-sql.ts drizzle/0001_indexes.sql
-DATABASE_URL=<production connection string> npm run migrate:data
+DATABASE_URL=<production connection string> yarn migrate:data
 ```
 Expected: same success output as Tasks 2/3/10, now applied to the `production` branch.
 
