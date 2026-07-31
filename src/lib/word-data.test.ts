@@ -27,6 +27,19 @@ describe('addWord', () => {
         expect(result).toBe('exists')
     })
 
+    it('resolves a unique-constraint race between two concurrent inserts of the same new word', async () => {
+        const results = await Promise.allSettled([addWord(TEST_WORD, 'custom'), addWord(TEST_WORD, 'custom')])
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<'created' | 'revived' | 'exists'>[]
+        expect(results.every((r) => r.status === 'fulfilled')).toBe(true)
+
+        const values = fulfilled.map((r) => r.value).sort()
+        expect(values).toEqual(['created', 'exists'])
+
+        const active = await readWords()
+        expect(active).toContain(TEST_WORD)
+    })
+
     it('revives a removed word back to active', async () => {
         await addWord(TEST_WORD)
         await removeWord(TEST_WORD)

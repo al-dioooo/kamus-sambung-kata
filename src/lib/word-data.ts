@@ -1,4 +1,5 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm'
+import { NeonDbError } from '@neondatabase/serverless'
 import { db } from './db/client'
 import { words } from './db/schema'
 import { getAdminWordPage, normalizeSearchText, normalizeSuffixTags, ADMIN_ITEMS_PER_PAGE, type AdminWordQuery, type AdminWordsResponse } from './word-search'
@@ -19,8 +20,21 @@ export async function addWord(word: string, source?: WordSource): Promise<'creat
     const existing = await db.select().from(words).where(eq(words.word, word)).limit(1)
 
     if (existing.length === 0) {
-        await db.insert(words).values({ word, source })
-        return 'created'
+        try {
+            await db.insert(words).values({ word, source })
+            return 'created'
+        } catch (error) {
+            // Unique-constraint violation (Postgres 23505): a concurrent request
+            // inserted the same word between our SELECT and this INSERT. Treat it
+            // the same as the already-active case instead of letting it surface
+            // as an unhandled 500. Drizzle's neon-http driver wraps the underlying
+            // NeonDbError in a DrizzleQueryError, exposing the original as `.cause`.
+            const cause = error instanceof Error ? error.cause : undefined
+            if (cause instanceof NeonDbError && cause.code === '23505') {
+                return 'exists'
+            }
+            throw error
+        }
     }
 
     if (existing[0].status === 'active') {
