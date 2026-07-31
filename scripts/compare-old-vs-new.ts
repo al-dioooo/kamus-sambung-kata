@@ -8,6 +8,10 @@ const MAIN_QUERIES: MainWordQuery[] = [
     { prefix: 'aba' },
     { prefix: 'ab', suffixTags: ['an'] },
     { prefix: 'abadi', minLen: 5, maxLen: 8 },
+    // No prefix: exercises readActiveWordsWithLengthRange (length-only SQL path).
+    { minLen: 5, maxLen: 6, suffixTags: ['an'] },
+    // Exercises the `middle` field / filterMainWords inner-substring matching.
+    { middle: 'ata' },
 ]
 
 const ADMIN_QUERIES: AdminWordQuery[] = [
