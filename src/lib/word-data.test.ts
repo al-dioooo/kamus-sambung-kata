@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from './db/client'
 import { words } from './db/schema'
-import { readWords, addWord, removeWord, readActiveWordsByPrefix, readActiveWordsWithLengthRange } from './word-data'
+import { readWords, addWord, removeWord, readActiveWordsByPrefix, readActiveWordsWithLengthRange, countActiveWordsByPrefix, readActiveWordsByPrefixPage, getAdminWordsPage } from './word-data'
 
 const TEST_WORD = `__test_word_${Date.now()}`
 
@@ -82,5 +82,37 @@ describe('readActiveWordsWithLengthRange', () => {
         const result = await readActiveWordsWithLengthRange(TEST_WORD.length, TEST_WORD.length)
         expect(result).toContain(TEST_WORD)
         expect(result.every((word) => word.length === TEST_WORD.length)).toBe(true)
+    })
+})
+
+describe('countActiveWordsByPrefix', () => {
+    it('counts active words matching a prefix', async () => {
+        await addWord(TEST_WORD)
+        const count = await countActiveWordsByPrefix(TEST_WORD)
+        expect(count).toBe(1)
+    })
+})
+
+describe('readActiveWordsByPrefixPage', () => {
+    it('paginates prefix-matched active words', async () => {
+        await addWord(TEST_WORD)
+        const page = await readActiveWordsByPrefixPage(TEST_WORD, 0, 10)
+        expect(page).toContain(TEST_WORD)
+    })
+})
+
+describe('getAdminWordsPage', () => {
+    it('uses the SQL fast path when no suffix tags are given', async () => {
+        await addWord(TEST_WORD)
+        const response = await getAdminWordsPage({ prefix: TEST_WORD, page: 1, pageSize: 10 })
+        expect(response.words).toContain(TEST_WORD)
+        expect(response.total).toBe(1)
+    })
+
+    it('falls back to JS filtering when suffix tags are given', async () => {
+        await addWord(TEST_WORD)
+        const suffix = TEST_WORD.slice(-3)
+        const response = await getAdminWordsPage({ prefix: TEST_WORD.slice(0, 8), suffixTags: [suffix], page: 1, pageSize: 10 })
+        expect(response.words).toContain(TEST_WORD)
     })
 })

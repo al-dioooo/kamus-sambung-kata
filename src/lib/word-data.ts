@@ -1,6 +1,7 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm'
 import { db } from './db/client'
 import { words } from './db/schema'
+import { getAdminWordPage, normalizeSearchText, normalizeSuffixTags, ADMIN_ITEMS_PER_PAGE, type AdminWordQuery, type AdminWordsResponse } from './word-search'
 
 type WordSource = 'kbbi' | 'loanword' | 'custom'
 
@@ -81,4 +82,60 @@ export async function readActiveWordsWithLengthRange(minLen?: number, maxLen?: n
         .orderBy(words.word)
 
     return rows.map((row) => row.word)
+}
+
+export async function countActiveWordsByPrefix(prefix?: string): Promise<number> {
+    const conditions = [eq(words.status, 'active')]
+    if (prefix) conditions.push(sql`${words.word} like ${prefix + '%'}`)
+
+    const rows = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(words)
+        .where(and(...conditions))
+
+    return rows[0]?.count ?? 0
+}
+
+export async function readActiveWordsByPrefixPage(prefix: string | undefined, offset: number, limit: number): Promise<string[]> {
+    const conditions = [eq(words.status, 'active')]
+    if (prefix) conditions.push(sql`${words.word} like ${prefix + '%'}`)
+
+    const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(and(...conditions))
+        .orderBy(words.word)
+        .limit(limit)
+        .offset(offset)
+
+    return rows.map((row) => row.word)
+}
+
+export async function getAdminWordsPage(query: AdminWordQuery): Promise<AdminWordsResponse> {
+    const cleanPrefix = normalizeSearchText(query.prefix)
+    const suffixTags = normalizeSuffixTags(query.suffixTags)
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : ADMIN_ITEMS_PER_PAGE
+
+    if (suffixTags.length === 0) {
+        const total = await countActiveWordsByPrefix(cleanPrefix || undefined)
+        const totalWords = cleanPrefix ? await countActiveWordsByPrefix() : total
+        const totalPages = Math.max(1, Math.ceil(total / pageSize))
+        const requestedPage = query.page && query.page > 0 ? Math.floor(query.page) : 1
+        const currentPage = Math.min(requestedPage, totalPages)
+        const offset = (currentPage - 1) * pageSize
+        const pageWords = await readActiveWordsByPrefixPage(cleanPrefix || undefined, offset, pageSize)
+
+        return {
+            words: pageWords,
+            total,
+            totalWords,
+            totalPages,
+            currentPage,
+            pageSize,
+            query: { prefix: cleanPrefix, suffixTags: [], page: currentPage, pageSize },
+        }
+    }
+
+    const narrowed = cleanPrefix ? await readActiveWordsByPrefix(cleanPrefix) : await readWords()
+    return getAdminWordPage(narrowed, query)
 }
