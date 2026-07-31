@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { readWords, writeWords } from '@/lib/word-data';
-import { getAdminWordPage, getMainWordSearchResponse, type AdminWordQuery, type MainWordQuery } from '@/lib/word-search';
+import { readWords, addWord, removeWord, getAdminWordsPage, readActiveWordsByPrefix, readActiveWordsWithLengthRange } from '@/lib/word-data';
+import { getMainWordSearchResponse, hasMainSearchQuery, normalizeSearchText, type AdminWordQuery, type MainWordQuery } from '@/lib/word-search';
 
 function getFirstQueryValue(value: string | string[] | undefined) {
     return Array.isArray(value) ? value[0] : value;
@@ -46,35 +46,42 @@ export default async function handler(
     res.setHeader('Expires', '0');
 
     if (req.method === 'GET') {
-        const words = await readWords();
         const scope = getFirstQueryValue(req.query.scope);
 
         if (scope === 'main') {
-            return res.status(200).json(getMainWordSearchResponse(words, getMainQuery(req)));
+            const query = getMainQuery(req);
+
+            if (!hasMainSearchQuery(query)) {
+                return res.status(200).json(getMainWordSearchResponse([], query));
+            }
+
+            const cleanPrefix = normalizeSearchText(query.prefix);
+            const words = cleanPrefix
+                ? await readActiveWordsByPrefix(cleanPrefix, query.minLen, query.maxLen)
+                : await readActiveWordsWithLengthRange(query.minLen, query.maxLen);
+
+            return res.status(200).json(getMainWordSearchResponse(words, query));
         }
 
         if (scope === 'admin') {
-            return res.status(200).json(getAdminWordPage(words, getAdminQuery(req)));
+            return res.status(200).json(await getAdminWordsPage(getAdminQuery(req)));
         }
 
+        const words = await readWords();
         return res.status(200).json(words);
     }
 
     if (req.method === 'POST') {
         try {
-            const { word } = req.body;
+            const { word, source } = req.body;
             const cleanWord = word?.trim().toLowerCase();
 
             if (!cleanWord) return res.status(400).json({ error: 'Kata tidak boleh kosong' });
 
-            const words = await readWords();
-            if (words.includes(cleanWord)) return res.status(400).json({ error: 'Kata sudah ada di kamus' });
+            const result = await addWord(cleanWord, source);
+            if (result === 'exists') return res.status(400).json({ error: 'Kata sudah ada di kamus' });
 
-            words.push(cleanWord);
-            // Simpan kembali ke file
-            await writeWords(words);
-
-            return res.status(201).json({ message: 'Kata berhasil ditambahkan', words: [...words].sort() });
+            return res.status(201).json({ message: 'Kata berhasil ditambahkan' });
         } catch (error) {
             // Menampilkan detail error 500 di terminal untuk mempermudah debug
             console.error("POST Error:", error);
@@ -87,15 +94,10 @@ export default async function handler(
             const { word } = req.body;
             const cleanWord = word?.trim().toLowerCase();
 
-            const words = await readWords();
-            const newWords = words.filter((w) => w !== cleanWord);
+            const removed = await removeWord(cleanWord);
+            if (!removed) return res.status(404).json({ error: 'Kata tidak ditemukan' });
 
-            if (words.length === newWords.length) {
-                return res.status(404).json({ error: 'Kata tidak ditemukan' });
-            }
-
-            await writeWords(newWords);
-            return res.status(200).json({ message: 'Kata berhasil dihapus', words: newWords });
+            return res.status(200).json({ message: 'Kata berhasil dihapus' });
         } catch (error) {
             console.error("DELETE Error:", error);
             return res.status(500).json({ error: 'Terjadi kesalahan saat menghapus data' });
