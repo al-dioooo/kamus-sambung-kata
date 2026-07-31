@@ -1,37 +1,45 @@
-import fs from 'fs/promises'
-import path from 'path'
+import { and, eq } from 'drizzle-orm'
+import { db } from './db/client'
+import { words } from './db/schema'
 
-const dataDirectory = path.join(process.cwd(), 'data')
-const dataFilePath = path.join(dataDirectory, 'words.json')
-
-export async function ensureDataFileExists() {
-    try {
-        await fs.access(dataDirectory)
-    } catch {
-        await fs.mkdir(dataDirectory, { recursive: true })
-    }
-
-    try {
-        await fs.access(dataFilePath)
-    } catch {
-        await fs.writeFile(dataFilePath, '[]', 'utf8')
-    }
-}
+type WordSource = 'kbbi' | 'loanword' | 'custom'
 
 export async function readWords(): Promise<string[]> {
-    await ensureDataFileExists()
+    const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(eq(words.status, 'active'))
+        .orderBy(words.word)
 
-    try {
-        const fileContents = await fs.readFile(dataFilePath, 'utf8')
-        const parsed = JSON.parse(fileContents)
-        return Array.isArray(parsed) ? parsed.filter((word): word is string => typeof word === 'string').sort() : []
-    } catch (error) {
-        console.error('Gagal membaca data:', error)
-        return []
-    }
+    return rows.map((row) => row.word)
 }
 
-export async function writeWords(words: string[]) {
-    await ensureDataFileExists()
-    await fs.writeFile(dataFilePath, JSON.stringify([...words].sort(), null, 2))
+export async function addWord(word: string, source?: WordSource): Promise<'created' | 'revived' | 'exists'> {
+    const existing = await db.select().from(words).where(eq(words.word, word)).limit(1)
+
+    if (existing.length === 0) {
+        await db.insert(words).values({ word, source })
+        return 'created'
+    }
+
+    if (existing[0].status === 'active') {
+        return 'exists'
+    }
+
+    await db
+        .update(words)
+        .set({ status: 'active', source: source ?? existing[0].source, updatedAt: new Date() })
+        .where(eq(words.word, word))
+
+    return 'revived'
+}
+
+export async function removeWord(word: string): Promise<boolean> {
+    const result = await db
+        .update(words)
+        .set({ status: 'removed', updatedAt: new Date() })
+        .where(and(eq(words.word, word), eq(words.status, 'active')))
+        .returning({ id: words.id })
+
+    return result.length > 0
 }
